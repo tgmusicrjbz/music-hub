@@ -7,24 +7,23 @@ import {
   useMemo,
   useRef,
   useState,
-  type ReactNode,
+  ReactNode,
 } from "react";
+import { Track } from "@prisma/client";
 
-import type { Track } from "@/types/app";
-
-type PlayerContextValue = {
+export interface PlayerContextValue {
   queue: Track[];
   currentTrack: Track | null;
   isPlaying: boolean;
   progress: number;
   duration: number;
   setQueue: (tracks: Track[], startAt?: number) => void;
-  playTrack: (track: Track, queue?: Track[]) => void;
+  playTrack: (track: Track, nextQueue?: Track[]) => void;
   togglePlayback: () => void;
   seek: (time: number) => void;
   playNext: () => void;
   playPrevious: () => void;
-};
+}
 
 const PlayerContext = createContext<PlayerContextValue | null>(null);
 
@@ -70,23 +69,41 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [progress, setProgress] = useState(initialState.progress);
   const [duration, setDuration] = useState(0);
 
+  // رفرنس برای دسترسی همیشگی به آخرین صف و ترک بدون نیاز به بازسازی Audio
+  const queueRef = useRef(queue);
+  queueRef.current = queue;
+  const currentTrackRef = useRef(currentTrack);
+  currentTrackRef.current = currentTrack;
+
   async function playTrackInternal(track: Track) {
     if (!audioRef.current) return;
-    audioRef.current.src = track.fileUrl;
-    await audioRef.current.play();
-    setCurrentTrack(track);
-    setIsPlaying(true);
+    try {
+      if (audioRef.current.src !== track.fileUrl) {
+        audioRef.current.src = track.fileUrl;
+      }
+      setCurrentTrack(track);
+      await audioRef.current.play();
+      setIsPlaying(true);
+    } catch (error) {
+      console.error("Audio playback error:", error);
+      setIsPlaying(false);
+    }
   }
 
+  // ساخت یکتای شیء صوتی در هنگام لود برنامه
   useEffect(() => {
-    audioRef.current = new Audio();
-    const audio = audioRef.current;
+    const audio = new Audio();
+    audioRef.current = audio;
 
     const onTimeUpdate = () => setProgress(audio.currentTime);
     const onLoadedMetadata = () => setDuration(audio.duration || 0);
+    const onPlay = () => setIsPlaying(true);
+    const onPause = () => setIsPlaying(false);
     const onEnded = () => {
-      const index = queue.findIndex((track) => track.id === currentTrack?.id);
-      const nextTrack = queue[index + 1];
+      const q = queueRef.current;
+      const cur = currentTrackRef.current;
+      const index = q.findIndex((track) => track.id === cur?.id);
+      const nextTrack = q[index + 1];
       if (nextTrack) {
         void playTrackInternal(nextTrack);
       } else {
@@ -96,33 +113,32 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
     audio.addEventListener("timeupdate", onTimeUpdate);
     audio.addEventListener("loadedmetadata", onLoadedMetadata);
+    audio.addEventListener("play", onPlay);
+    audio.addEventListener("pause", onPause);
     audio.addEventListener("ended", onEnded);
 
     return () => {
       audio.pause();
       audio.removeEventListener("timeupdate", onTimeUpdate);
       audio.removeEventListener("loadedmetadata", onLoadedMetadata);
+      audio.removeEventListener("play", onPlay);
+      audio.removeEventListener("pause", onPause);
       audio.removeEventListener("ended", onEnded);
     };
-  }, [currentTrack, queue]);
+  }, []);
 
+  // ذخیره وضعیت در localStorage
   useEffect(() => {
-    if (!audioRef.current || !currentTrack) {
-      return;
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(
+        "music-hub-player",
+        JSON.stringify({
+          queue,
+          currentTrack,
+          progress,
+        }),
+      );
     }
-    audioRef.current.src = currentTrack.fileUrl;
-    audioRef.current.currentTime = progress;
-  }, [currentTrack, progress]);
-
-  useEffect(() => {
-    window.localStorage.setItem(
-      "music-hub-player",
-      JSON.stringify({
-        queue,
-        currentTrack,
-        progress,
-      }),
-    );
   }, [queue, currentTrack, progress]);
 
   const value = useMemo<PlayerContextValue>(
@@ -150,11 +166,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       togglePlayback() {
         if (!audioRef.current) return;
         if (audioRef.current.paused) {
-          void audioRef.current.play();
-          setIsPlaying(true);
+          audioRef.current.play().catch(console.error);
         } else {
           audioRef.current.pause();
-          setIsPlaying(false);
         }
       },
       seek(time) {
@@ -185,10 +199,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
 export function usePlayer() {
   const context = useContext(PlayerContext);
-
   if (!context) {
-    throw new Error("usePlayer must be used within PlayerProvider");
+    throw new Error("usePlayer must be used within a PlayerProvider");
   }
-
   return context;
 }
