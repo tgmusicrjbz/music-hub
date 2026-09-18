@@ -12,6 +12,9 @@ export function PlayerBar() {
     return null;
   }
 
+  // استفاده از زمان دیتابیس در صورت لود نشدن مدت زمان مرورگر
+  const totalDuration = duration > 0 ? duration : (currentTrack.durationSec || 100);
+
   return (
     <div className="fixed bottom-20 left-1/2 z-30 w-[calc(100%-1rem)] max-w-[calc(28rem-1rem)] -translate-x-1/2 rounded-3xl border border-white/10 bg-neutral-950/95 p-3 shadow-2xl backdrop-blur">
       <div className="mb-2 flex items-center justify-between gap-3">
@@ -34,14 +37,14 @@ export function PlayerBar() {
       <input
         type="range"
         min={0}
-        max={duration || 0}
-        value={progress}
+        max={totalDuration}
+        value={Math.min(progress, totalDuration)}
         onChange={(event) => seek(Number(event.target.value))}
-        className="w-full"
+        className="w-full cursor-pointer accent-white"
       />
       <div className="mt-1 flex justify-between text-[11px] text-white/50">
         <span>{formatDuration(Math.round(progress))}</span>
-        <span>{formatDuration(Math.round(duration))}</span>
+        <span>{formatDuration(Math.round(totalDuration))}</span>
       </div>
     </div>
   );
