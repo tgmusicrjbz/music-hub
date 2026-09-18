@@ -82,6 +82,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         audioRef.current.src = track.fileUrl;
       }
       setCurrentTrack(track);
+      setProgress(0);
+      setDuration(track.durationSec || 0); // تنظیم فوری مدت زمان آهنگ
       await audioRef.current.play();
       setIsPlaying(true);
     } catch (error) {
